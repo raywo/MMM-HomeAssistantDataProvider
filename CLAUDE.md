@@ -18,6 +18,17 @@ question there before implementing the part it concerns.
   Never a level or an assessment: thresholds belong to the display.
 - Publish readings under the configured neutral names, never require a
   display to know entity IDs.
+- Read host, port, TLS, token and the readings only from the
+  server-side config with `getServerModuleConfig()`, never from a socket
+  message. MagicMirror restores `SECRET_*` placeholders in every socket
+  message, so a host from the browser lets anyone who can open the mirror
+  send the token to their own server.
+- Treat every socket message from the browser as untrusted. It may at most
+  ask for the current state, optionally by a reading name that the
+  server-side config lists; never by entity ID, or anyone could read
+  arbitrary Home Assistant states.
+- One instance per mirror: `getServerModuleConfig()` finds only the first
+  instance of a module.
 - Keep the token in the `node_helper`; never send it back to the
   browser or log it.
 - Use the report time from Home Assistant (`last_reported`), not the

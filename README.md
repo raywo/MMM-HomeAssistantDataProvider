@@ -126,6 +126,16 @@ a reading was sent sees nothing until the next change.
 - Set `useTLS` in `config.js`, not from `.env`: substituted values are
   strings, and `"false"` is truthy.
 - The module needs no `position`.
+- Configure one instance per mirror; it serves all displays.
+
+### Security
+
+The `node_helper` reads the connection and the readings from the
+server-side config only (`getServerModuleConfig()`). The browser can at
+most ask for the current state of a configured reading. Taking the host
+from the browser would be a leak: MagicMirror restores `SECRET_*`
+placeholders in every socket message, so anyone who can open the mirror
+could have the token sent to their own server.
 
 ## License
 
