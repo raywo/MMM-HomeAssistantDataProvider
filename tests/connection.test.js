@@ -8,7 +8,7 @@ const {FakeHomeAssistant, delay, waitFor} = require("./support/fake-home-assista
 const TOKEN = "eyJhbGciOiJIUzI1NiJ9.secret-token-value";
 
 // Short enough for the tests, long enough to tell the steps apart.
-const TIMINGS_FOR_TESTS = {gracePeriodMs: 300, initialBackoffMs: 20, maxBackoffMs: 40, heartbeatMs: 1000};
+const TIMINGS_FOR_TESTS = {gracePeriodMs: 300, initialBackoffMs: 20, maxBackoffMs: 40, heartbeatMs: 1000, authTimeoutMs: 1000};
 
 const STATES = {
 	"sensor.living_room_co2": {
@@ -283,6 +283,16 @@ describe("HomeAssistantConnection", () => {
 		await waitFor(() => homeAssistant.connections.length >= 2, 2000, "the second connection");
 		assert.ok(homeAssistant.received.some((message) => message.type === "ping"));
 		assert.equal(published.connection[1].connected, false);
+	});
+
+	it("reconnects when Home Assistant does not complete the authentication", async () => {
+		const homeAssistant = await startHomeAssistant();
+		homeAssistant.withholdAuthRequired = true;
+		const {published} = connect(homeAssistant.port, {timings: {...TIMINGS_FOR_TESTS, authTimeoutMs: 30}});
+
+		await waitFor(() => homeAssistant.connections.length >= 2, 2000, "the second connection");
+		assert.equal(published.log.warn.length, 1);
+		assert.equal(published.connection.length, 0);
 	});
 
 	it("stays connected while Home Assistant answers pings", async () => {

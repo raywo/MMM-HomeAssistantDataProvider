@@ -20,6 +20,10 @@ class FakeHomeAssistant {
 		// Answers subscribe_entities with an error, as Home Assistant does
 		// for an entity ID of invalid format.
 		this.refuseSubscriptions = false;
+		// Completes the WebSocket handshake but never sends auth_required,
+		// as a proxy without a backend or a network that drops right after
+		// the connect would.
+		this.withholdAuthRequired = false;
 		// Every message a client sent, in order.
 		this.received = [];
 		// Every connection that completed the WebSocket handshake.
@@ -102,7 +106,9 @@ class FakeHomeAssistant {
 		this.connections.push(client);
 		this.clients.add(client);
 		socket.on("close", () => this.clients.delete(client));
-		client.send({type: "auth_required", ha_version: "2026.10.2"});
+		if (!this.withholdAuthRequired) {
+			client.send({type: "auth_required", ha_version: "2026.10.2"});
+		}
 	}
 
 	handle(client, message) {
