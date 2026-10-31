@@ -67,8 +67,9 @@ and users install by `git clone` only.
 
 ## Host pitfalls
 
-- MagicMirror replaces `${VAR}` in `config.js` textually; values from
-  `.env` arrive as strings ("false" is truthy).
+- MagicMirror replaces `${VAR}` in `config.js` textually: unquoted, a
+  value keeps its type; quoted, it is a string ("false" is truthy). Do
+  not convert strings; a quoted boolean or number is a user error.
 - `SECRET_*` variables reach the browser only as placeholders and are
   restored in payloads to the `node_helper`.
 - In Docker, `homeassistant.local` does not resolve.

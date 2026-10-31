@@ -100,6 +100,13 @@ measurement only:
   a reading has `value: null` and `available: true`.
 - An unavailable reading is sent explicitly, with `value: null`, so that
   a display shows "no value" instead of keeping the old one.
+- When the connection is lost, an unavailable reading keeps `label`,
+  `unit`, `quantity`, `stateClass`, `reportedAt` and `changedAt` of the
+  last known reading, so that a display can still show what it is and
+  since when it has no value.
+- A configured entity that Home Assistant does not know is sent as
+  unavailable with every field except `name` and `available` set to
+  `null`.
 - No level or assessment: thresholds belong to the display, otherwise the
   provider couples to it.
 - No entity ID: displays know readings by name only.
@@ -133,7 +140,14 @@ Sent on every change of the connection state, and at start after
 - When the connection stays lost for 30 s, publish every reading with
   `available: false` and `value: null`, so that a display without its own
   staleness check does not keep an old value. The delay avoids flicker
-  while Home Assistant restarts.
+  while Home Assistant restarts. All other fields keep their last known
+  values.
+- A configured entity missing from the initial states is published as
+  unavailable, and the provider logs a warning naming the reading.
+- A rejected token is logged once, without the token. The provider then
+  stays disconnected (`connected: false`) and does not retry until
+  MagicMirror restarts: a corrected token only takes effect after a
+  restart anyway.
 - **Open:** which subscription delivers reports of unchanged values
   (`last_reported`). `subscribe_entities` with an entity filter is the
   candidate; to be verified. Without it, a steady sensor would turn
@@ -178,8 +192,10 @@ git pull
 - `token` should be a `SECRET_*` variable: MagicMirror then hands it to
   the `node_helper` only. Create it in Home Assistant under profile >
   Security.
-- Set `useTLS` in `config.js`, not from `.env`: substituted values are
-  strings, and `"false"` is truthy.
+- MagicMirror replaces `${VAR}` in `config.js` textually. Write a
+  variable for `useTLS` or `port` without quotes (`port: ${HA_PORT}`): in
+  quotes it becomes a string, and `"false"` is truthy. The module does
+  not convert strings.
 - The module needs no `position`.
 - Configure one instance per mirror; it serves all displays.
 
