@@ -130,6 +130,12 @@ readings once after `ALL_MODULES_STARTED` on its own.
 Sent on every change of the connection state, and at start after
 `ALL_MODULES_STARTED`.
 
+The state is sent without delay, also for a short drop while Home
+Assistant restarts. A display does not need it: after 30 s without
+connection, every reading arrives with `available: false`. A display
+that reacts to `connected: false` itself should wait for its own grace
+period, or it flickers on every short drop.
+
 ### Connection
 
 - The `node_helper` connects in `start()`, from the server-side config,
