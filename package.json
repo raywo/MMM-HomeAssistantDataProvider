@@ -1,6 +1,6 @@
 {
   "name": "mmm-homeassistantdataprovider",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "A MagicMirror² module without display that publishes Home Assistant entity states as notifications for other modules.",
   "keywords": [
     "MagicMirror",

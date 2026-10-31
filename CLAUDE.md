@@ -7,8 +7,8 @@ Its `node_helper` holds one WebSocket connection to Home Assistant; the
 browser side publishes entity states as notifications for display modules
 such as MMM-RingGauge. Users clone it into `MagicMirror/modules/`.
 
-The design and the open questions are in `README.md`. Resolve an open
-question there before implementing the part it concerns.
+The design is in `README.md`. If it marks a question as open, resolve
+it there before implementing the part it concerns.
 
 ## Rules
 
