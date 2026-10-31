@@ -217,6 +217,17 @@ from the browser would be a leak: MagicMirror restores `SECRET_*`
 placeholders in every socket message, so anyone who can open the mirror
 could have the token sent to their own server.
 
+## Development
+
+The module has no build step and no dependencies. Run the checks the
+workflow runs on every pull request:
+
+```sh
+git ls-files '*.js' | xargs -n1 node --check
+pnpm dlx @biomejs/biome@2.6.3 ci .
+node --test "tests/**/*.test.js"
+```
+
 ## License
 
 MIT
