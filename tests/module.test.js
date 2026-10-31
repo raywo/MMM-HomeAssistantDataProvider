@@ -68,11 +68,12 @@ function loadNodeHelper() {
  * Starts the node_helper the way MagicMirror² does: as an instance of
  * NodeHelper, whose `getServerModuleConfig()` returns `serverConfig`.
  * Without `serverConfig`, the instance lacks `getServerModuleConfig()`, as
- * before MagicMirror² 2.38.
+ * before MagicMirror² 2.38. Like NodeHelper, the base ignores a socket
+ * notification the helper does not handle itself.
  */
-function startNodeHelper(serverConfig, {browserConfig} = {}) {
+function startNodeHelper(serverConfig) {
 	const {exports, logged} = loadNodeHelper();
-	const base = {name: MODULE_NAME, config: browserConfig};
+	const base = {name: MODULE_NAME, socketNotificationReceived() {}};
 	if (serverConfig !== undefined) {
 		base.getServerModuleConfig = () => serverConfig;
 	}
@@ -130,8 +131,8 @@ describe(MODULE_NAME, () => {
 	});
 
 	it("stays idle and names the required version without getServerModuleConfig()", () => {
-		const {helper, logged} = startNodeHelper(undefined, {browserConfig: serverConfig()});
-		assert.equal(helper.config, null, "falls back to the config from the browser");
+		const {helper, logged} = startNodeHelper(undefined);
+		assert.equal(helper.config, null);
 		assert.equal(logged.error.length, 1);
 		assert.match(logged.error[0], /MagicMirror² 2\.38/);
 		assert.match(logged.error[0], /getServerModuleConfig\(\)/);
@@ -163,12 +164,36 @@ describe(MODULE_NAME, () => {
 				assert.ok(!line.includes(TOKEN), `log line contains the token: ${line}`);
 			}
 		}
-		const {logged} = startNodeHelper(undefined, {browserConfig: serverConfig()});
-		assert.ok(allLines(logged).every((line) => !line.includes(TOKEN)));
 	});
 
-	it("does not take the connection from the config of the browser", () => {
-		const {helper} = startNodeHelper(serverConfig({host: ""}), {browserConfig: serverConfig({host: "attacker.example"})});
+	// The browser reaches the helper only through socket notifications, and
+	// MagicMirror² restores SECRET_* placeholders in their payloads.
+	const FORGED = {host: "attacker.example", port: 443, useTLS: true, token: "forged", readings: {co2: "sensor.other"}};
+	const SOCKET_NOTIFICATIONS = ["CONFIG", "INIT", "GET_STATE", "GET_READING", "SET_CONFIG"];
+
+	function sendForged(helper) {
+		for (const notification of SOCKET_NOTIFICATIONS) {
+			helper.socketNotificationReceived(notification, FORGED);
+			helper.socketNotificationReceived(notification, {config: FORGED});
+		}
+	}
+
+	it("does not take the connection from a socket notification", () => {
+		const {helper} = startNodeHelper(serverConfig());
+		const config = structuredClone(helper.config);
+		sendForged(helper);
+		assert.deepEqual(helper.config, config);
+	});
+
+	it("does not fall back to a socket notification without getServerModuleConfig()", () => {
+		const {helper} = startNodeHelper(undefined);
+		sendForged(helper);
+		assert.equal(helper.config, null);
+	});
+
+	it("does not fall back to a socket notification on an invalid config", () => {
+		const {helper} = startNodeHelper(serverConfig({host: ""}));
+		sendForged(helper);
 		assert.equal(helper.config, null);
 	});
 
