@@ -1,0 +1,22 @@
+{
+  "name": "mmm-homeassistantdataprovider",
+  "version": "0.0.0",
+  "description": "A MagicMirror² module without display that publishes Home Assistant entity states as notifications for other modules.",
+  "keywords": [
+    "MagicMirror",
+    "home assistant",
+    "sensor",
+    "data provider",
+    "notifications"
+  ],
+  "homepage": "https://github.com/raywo/MMM-HomeAssistantDataProvider#readme",
+  "bugs": {
+    "url": "https://github.com/raywo/MMM-HomeAssistantDataProvider/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raywo/MMM-HomeAssistantDataProvider.git"
+  },
+  "license": "MIT",
+  "author": "Ray Wojciechowski (https://github.com/raywo)"
+}
