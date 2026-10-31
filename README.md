@@ -6,8 +6,6 @@ states of configured entities as notifications, so that display modules
 such as [MMM-RingGauge](https://github.com/raywo/MMM-RingGauge) can show
 them without knowing Home Assistant.
 
-> **Open – not implemented.** This repository holds the design so far.
-
 ## Why a separate module
 
 - **One connection for many displays.** Every gauge fetching its own data
@@ -31,14 +29,7 @@ No existing module covers this. In the MagicMirror² module list:
 - `wonderslug/MMM-HomeAssistantDisplay` renders Home Assistant templates
   into its own display and publishes nothing.
 
-## Requirements
-
-- MagicMirror² 2.38 or newer. The module reads its config on the server
-  with `getServerModuleConfig()`, which older versions lack.
-- Node.js as required by MagicMirror² 2.38 (22.22 or newer). The module
-  uses Node's built-in `WebSocket` and has no dependencies.
-
-## Design
+## How it works
 
 ### Data flow
 
@@ -55,7 +46,194 @@ The config maps neutral names to entity IDs, e.g.
 Displays subscribe to `co2`, so replacing the sensor or the whole source
 only changes the provider's config.
 
-## Contract
+## Requirements
+
+- MagicMirror² 2.38 or newer. The module reads its config on the server
+  with `getServerModuleConfig()`, which older versions lack.
+- Node.js as required by MagicMirror² 2.38 (22.22 or newer). The module
+  uses Node's built-in `WebSocket` and has no dependencies.
+- A Home Assistant that the MagicMirror² server reaches over the network,
+  and a long-lived access token of a Home Assistant user.
+
+## Installation
+
+```sh
+cd ~/MagicMirror/modules
+git clone https://github.com/raywo/MMM-HomeAssistantDataProvider
+```
+
+The module has no dependencies; there is nothing to install.
+
+## Update
+
+```sh
+cd ~/MagicMirror/modules/MMM-HomeAssistantDataProvider
+git pull
+```
+
+Restart MagicMirror² afterwards.
+
+## Configuration
+
+Add the module to `config/config.js`:
+
+```js
+    {
+      module: "MMM-HomeAssistantDataProvider",
+      config: {
+        host: "192.168.1.10",
+        port: 8123,
+        useTLS: false,
+        token: "${SECRET_HOMEASSISTANT_TOKEN}",
+        readings: {
+          co2: "sensor.living_room_co2",
+          humidity: "sensor.living_room_humidity"
+        }
+      }
+    },
+```
+
+Then put the token into `config/config.env`, next to `config.js`.
+MagicMirror² reads this file at start:
+
+```sh
+SECRET_HOMEASSISTANT_TOKEN=eyJhbGciOi...
+```
+
+A variable set in the environment of the MagicMirror² server, e.g. by
+Docker Compose, works the same way.
+
+1. Create the token in Home Assistant: open your profile, tab
+   Security, and create a long-lived access token. Home Assistant shows
+   it only once.
+2. Find the entity IDs in Home Assistant under Settings > Devices &
+   services > Entities, or under Developer tools > States.
+3. Choose a name for every entity under `readings`. Displays subscribe
+   to that name, e.g. `co2`, not to the entity ID.
+4. Restart MagicMirror² and check its log (see
+   [Troubleshooting](#troubleshooting)).
+
+### Options
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `host` | string | required | Host name or IP address of Home Assistant, without scheme and port |
+| `port` | number | `8123` | Port of Home Assistant |
+| `useTLS` | boolean | `false` | `true` connects with `wss://`, `false` with `ws://` |
+| `token` | string | required | Long-lived access token of Home Assistant |
+| `readings` | object | required | Reading names mapped to entity IDs, at least one |
+
+If `host`, `token` or `readings` is missing or empty, a reading has no
+entity ID, or the variable of the token is not set, the module logs which
+option is wrong and does not connect; MagicMirror keeps running. It does
+the same on a MagicMirror older than 2.38. The log never contains the
+token.
+
+- `host` must be reachable from the MagicMirror server; in Docker,
+  `homeassistant.local` does not resolve, use an IP address or DNS name.
+- `useTLS` must be `true` if Home Assistant is reached with `https://`,
+  e.g. behind a reverse proxy; then `port` is usually `443`.
+- `token` should be a `SECRET_*` variable: MagicMirror then hands it to
+  the `node_helper` only.
+- `readings` may map several names to the same entity ID; each name gets
+  its own notifications.
+- MagicMirror replaces `${VAR}` in `config.js` textually. Write a
+  variable for `useTLS` or `port` without quotes (`port: ${HA_PORT}`): in
+  quotes it becomes a string, and the module does not convert strings:
+  only the boolean `true` connects with `wss://`, `"true"` connects with
+  `ws://`.
+- The module needs no `position`.
+- Configure one instance per mirror; it serves all displays.
+
+### Security
+
+The `node_helper` reads the connection and the readings from the
+server-side config only (`getServerModuleConfig()`). The browser can at
+most ask for the current state of a configured reading. Taking the host
+from the browser would be a leak: MagicMirror restores `SECRET_*`
+placeholders in every socket message, so anyone who can open the mirror
+could have the token sent to their own server.
+
+## Troubleshooting
+
+The module writes to the log of the MagicMirror² server, i.e. the
+terminal it runs in, or `pm2 logs` if it runs under pm2. Every line of
+the module contains `MMM-HomeAssistantDataProvider`. The browser console
+shows nothing of the connection.
+
+### The token is rejected
+
+Log: `Home Assistant rejected the token. The module stays disconnected;
+correct the token and restart MagicMirror².`
+
+- Create a new long-lived access token in Home Assistant and put it into
+  `config/config.env`. Copy it whole; it is one long line.
+- Check that `config.js` refers to the same variable name as
+  `config.env`.
+- Restart MagicMirror². The module does not retry with a rejected token.
+
+If the log says instead that the option token refers to an environment
+variable that is not set, `config/config.env` lacks the variable or sits
+in another directory than `config.js`, or the variable is not set in the
+environment of the server.
+
+### Home Assistant is not reachable
+
+Log: a line ending in `Reconnecting with backoff of up to 10 s.`, e.g.
+`The connection to Home Assistant failed. Reconnecting …` or `Home
+Assistant did not complete the authentication within 10 s.
+Reconnecting …`. It is written once per outage, not per attempt. The
+line `Connecting to Home Assistant at …` before it names the URL the
+module uses.
+
+- Check from the MagicMirror² server that Home Assistant answers at this
+  address: `curl http://192.168.1.10:8123/api/` (`https://` with
+  `useTLS: true`). An answer of `401: Unauthorized` means it is
+  reachable.
+- In Docker, `homeassistant.local` and other mDNS names do not resolve;
+  use an IP address or a DNS name.
+- Check `port` and `useTLS`: Home Assistant behind a reverse proxy with
+  HTTPS needs `useTLS: true` and the port of the proxy.
+- The module keeps retrying on its own and connects as soon as Home
+  Assistant is reachable; there is no need to restart MagicMirror².
+
+### MagicMirror² is older than 2.38
+
+Log: `MMM-HomeAssistantDataProvider requires MagicMirror² 2.38 or newer,
+which provides getServerModuleConfig(). The module stays idle.`
+
+Update MagicMirror². The module does not fall back to the config from
+the browser: that would let anyone who can open the mirror have the token
+sent elsewhere.
+
+### A reading stays unavailable
+
+A display shows no value, and the reading has `available: false`.
+
+- Log: `Home Assistant does not know the entity of the reading co2; it is
+  published as unavailable.` The entity ID under `readings` is wrong, or
+  the entity was removed or renamed in Home Assistant. Compare it with
+  Developer tools > States.
+- No such line: Home Assistant itself reports the entity as
+  `unavailable` or `unknown`, e.g. when the device is offline. Check the
+  state in Developer tools > States.
+- Every reading is unavailable: the connection has been lost for more
+  than 30 s; see the sections above.
+
+A reading with `available: true` and `value: null` has a state that is
+not a number, such as `on` or `off`; the module publishes numbers only.
+
+A value that does not change for hours is not an error: Home Assistant
+reports changes only, and a reading stays valid until the next one.
+
+### Nothing happens at all
+
+Look for `The config cannot work. The module stays idle.` in the log. The
+lines before it name each wrong option.
+
+## For display authors
+
+### Contract
 
 The provider owns this contract. Any change to a notification name or a
 field is a breaking change for displays.
@@ -69,7 +247,7 @@ addressing. Displays react to the names below and ignore the rest.
 | `HOME_ASSISTANT_READING_REQUEST` | display | `{ name }` or nothing |
 | `HOME_ASSISTANT_CONNECTION` | provider | connection state |
 
-### `HOME_ASSISTANT_READING`
+#### `HOME_ASSISTANT_READING`
 
 One notification per reading. A reading holds facts about the
 measurement only:
@@ -101,14 +279,14 @@ measurement only:
 - When the connection is lost, an unavailable reading keeps `label`,
   `unit`, `quantity`, `stateClass` and `changedAt` of the last known
   reading, so that a display can still show what it is.
-- A configured entity that Home Assistant does not know is sent as
-  unavailable with every field except `name` and `available` set to
-  `null`.
+- A configured entity that Home Assistant does not know, or that is
+  removed while the provider runs, is sent as unavailable with every
+  field except `name` and `available` set to `null`.
 - No level or assessment: thresholds belong to the display, otherwise the
   provider couples to it.
 - No entity ID: displays know readings by name only.
 
-### `HOME_ASSISTANT_READING_REQUEST`
+#### `HOME_ASSISTANT_READING_REQUEST`
 
 Notifications are not retained: a display that needs a reading after it
 was sent sees nothing until the next report. Such a display sends
@@ -120,12 +298,12 @@ Displays need the request only for readings they need later, e.g. when
 another module shows them again. At start the provider publishes all
 readings once after `ALL_MODULES_STARTED` on its own.
 
-### `HOME_ASSISTANT_CONNECTION`
+#### `HOME_ASSISTANT_CONNECTION`
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `connected` | boolean | whether the provider holds an authenticated connection |
-| `since` | number | epoch ms of the last change of `connected` |
+| `since` | number | epoch ms of the last change of `connected`, or of the start of the provider if it never connected |
 
 Sent on every change of the connection state, and at start after
 `ALL_MODULES_STARTED`.
@@ -135,6 +313,48 @@ Assistant restarts. A display does not need it: after 30 s without
 connection, every reading arrives with `available: false`. A display
 that reacts to `connected: false` itself should wait for its own grace
 period, or it flickers on every short drop.
+
+### Example display
+
+A minimal display that shows one reading as text:
+
+```js
+Module.register("MMM-ReadingText", {
+  defaults: {
+    reading: "co2"
+  },
+
+  start() {
+    this.reading = null;
+  },
+
+  notificationReceived(notification, payload) {
+    if (notification === "HOME_ASSISTANT_READING" && payload.name === this.config.reading) {
+      this.reading = payload;
+      this.updateDom();
+    }
+  },
+
+  getDom() {
+    const element = document.createElement("div");
+    const reading = this.reading;
+    if (reading === null || reading.value === null) {
+      element.textContent = "–";
+    } else {
+      element.textContent = `${reading.label ?? reading.name}: ${reading.value} ${reading.unit ?? ""}`;
+    }
+    return element;
+  }
+});
+```
+
+It needs no request: the provider publishes every reading after
+`ALL_MODULES_STARTED` and on every change. A display that needs the
+current value again later, e.g. after it was hidden, sends:
+
+```js
+this.sendNotification("HOME_ASSISTANT_READING_REQUEST", { name: "co2" });
+```
 
 ### Connection
 
@@ -164,83 +384,13 @@ period, or it flickers on every short drop.
   counts as failed and is retried with the same backoff, so that a
   connection that stalls before authentication, e.g. at a proxy without
   a backend, is not kept for good.
-- A configured entity missing from the initial states is published as
-  unavailable, and the provider logs a warning naming the reading.
+- A configured entity missing from the initial states, or removed while
+  the provider runs, is published as unavailable, and the provider logs
+  a warning naming the reading.
 - A rejected token is logged once, without the token. The provider then
   stays disconnected (`connected: false`) and does not retry until
   MagicMirror restarts: a corrected token only takes effect after a
   restart anyway.
-
-## Installation
-
-```sh
-cd ~/MagicMirror/modules
-git clone https://github.com/raywo/MMM-HomeAssistantDataProvider
-```
-
-The module has no dependencies; there is nothing to install.
-
-## Update
-
-```sh
-cd ~/MagicMirror/modules/MMM-HomeAssistantDataProvider
-git pull
-```
-
-## Configuration (draft)
-
-```js
-    {
-      module: "MMM-HomeAssistantDataProvider",
-      config: {
-        host: "192.168.1.10",
-        port: 8123,
-        useTLS: false,
-        token: "${SECRET_HOMEASSISTANT_TOKEN}",
-        readings: {
-          co2: "sensor.living_room_co2",
-          humidity: "sensor.living_room_humidity"
-        }
-      }
-    },
-```
-
-### Options
-
-| Option | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `host` | string | required | Host name or IP address of Home Assistant, without scheme and port |
-| `port` | number | `8123` | Port of Home Assistant |
-| `useTLS` | boolean | `false` | `true` connects with `wss://`, `false` with `ws://` |
-| `token` | string | required | Long-lived access token of Home Assistant |
-| `readings` | object | required | Reading names mapped to entity IDs, at least one |
-
-If `host`, `token` or `readings` is missing or empty, a reading has no
-entity ID, or the variable of the token is not set, the module logs which
-option is wrong and does not connect; MagicMirror keeps running. It does
-the same on a MagicMirror older than 2.38. The log never contains the
-token.
-
-- `host` must be reachable from the MagicMirror server; in Docker,
-  `homeassistant.local` does not resolve, use an IP address or DNS name.
-- `token` should be a `SECRET_*` variable: MagicMirror then hands it to
-  the `node_helper` only. Create it in Home Assistant under profile >
-  Security.
-- MagicMirror replaces `${VAR}` in `config.js` textually. Write a
-  variable for `useTLS` or `port` without quotes (`port: ${HA_PORT}`): in
-  quotes it becomes a string, and `"false"` is truthy. The module does
-  not convert strings.
-- The module needs no `position`.
-- Configure one instance per mirror; it serves all displays.
-
-### Security
-
-The `node_helper` reads the connection and the readings from the
-server-side config only (`getServerModuleConfig()`). The browser can at
-most ask for the current state of a configured reading. Taking the host
-from the browser would be a leak: MagicMirror restores `SECRET_*`
-placeholders in every socket message, so anyone who can open the mirror
-could have the token sent to their own server.
 
 ## Development
 
@@ -252,6 +402,10 @@ git ls-files '*.js' | xargs -n1 node --check
 pnpm dlx @biomejs/biome@2.6.3 ci .
 node --test "tests/**/*.test.js"
 ```
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
