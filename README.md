@@ -154,7 +154,16 @@ period, or it flickers on every short drop.
   `available: false` and `value: null`, so that no display keeps an old
   value as if it were current. The delay avoids flicker
   while Home Assistant restarts. All other fields keep their last known
-  values.
+  values. The same holds when Home Assistant is unreachable from the
+  start; a reading never received then has every field except `name` and
+  `available` set to `null`.
+- The provider pings Home Assistant every 30 s and reconnects when a ping
+  gets no answer before the next one, so that a connection that dies
+  without being closed, e.g. on a network failure, is noticed too.
+- A connection that Home Assistant has not authenticated within 10 s
+  counts as failed and is retried with the same backoff, so that a
+  connection that stalls before authentication, e.g. at a proxy without
+  a backend, is not kept for good.
 - A configured entity missing from the initial states is published as
   unavailable, and the provider logs a warning naming the reading.
 - A rejected token is logged once, without the token. The provider then

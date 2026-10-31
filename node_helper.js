@@ -12,13 +12,21 @@
 const NodeHelper = require("node_helper");
 const Log = require("logger");
 const {validateConfig} = require("./lib/config.js");
+const {HomeAssistantConnection} = require("./lib/connection.js");
 
 const MODULE_NAME = "MMM-HomeAssistantDataProvider";
 
+const prefixedLog = {
+	info: (message) => Log.info(`${MODULE_NAME}: ${message}`),
+	warn: (message) => Log.warn(`${MODULE_NAME}: ${message}`),
+	error: (message) => Log.error(`${MODULE_NAME}: ${message}`)
+};
+
 module.exports = NodeHelper.create({
 	start() {
-		// Stays null while the module is idle.
+		// Both stay null while the module is idle.
 		this.config = null;
+		this.connection = null;
 
 		// Never fall back to the config from the browser: it is the one a
 		// socket message can forge.
@@ -38,5 +46,18 @@ module.exports = NodeHelper.create({
 			return;
 		}
 		this.config = config;
+
+		// Not awaited: MagicMirror² waits for start() before it starts, and
+		// Home Assistant may be unreachable for a long time.
+		this.connection = new HomeAssistantConnection(config, {
+			log: prefixedLog,
+			onReading: (reading) => this.sendSocketNotification("HOME_ASSISTANT_READING", reading),
+			onConnection: (state) => this.sendSocketNotification("HOME_ASSISTANT_CONNECTION", state)
+		});
+		this.connection.start();
+	},
+
+	stop() {
+		this.connection?.stop();
 	}
 });
