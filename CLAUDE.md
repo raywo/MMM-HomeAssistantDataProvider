@@ -33,15 +33,15 @@ question there before implementing the part it concerns.
   instance of a module.
 - Keep the token in the `node_helper`; never send it back to the
   browser or log it.
-- Use the report time from Home Assistant (`last_reported`), not the
-  time of receipt: displays decide staleness from it.
 - Send an unavailable reading explicitly; do not stay silent. A
   connection lost for longer than the grace period makes every reading
-  unavailable; do not rely on displays checking staleness.
+  unavailable. A steady value is a valid value: never mark a reading
+  unavailable or stale for not changing.
 - Reconnect with backoff and resubscribe; never let a connection error
   escape as an unhandled rejection, it would stop the MagicMirror server.
-- A reloaded browser registers the module again; the helper must not open
-  a second connection for it.
+- Connect in the helper's `start()`, never on a socket message: a
+  reloaded browser must not open a second connection. Do not await the
+  connection in `start()`; MagicMirror waits for it before it starts.
 - No display: `getDom()` returns an empty element.
 - Requires MagicMirror 2.38: `getServerModuleConfig()` does not exist
   before. If it is missing, log an error and stay idle; never fall back to
@@ -73,8 +73,3 @@ and users install by `git clone` only.
 - `SECRET_*` variables reach the browser only as placeholders and are
   restored in payloads to the `node_helper`.
 - In Docker, `homeassistant.local` does not resolve.
-
-## Open
-
-- **Open:** subscription that also delivers unchanged reports
-  (`last_reported`); see README, "Connection".
