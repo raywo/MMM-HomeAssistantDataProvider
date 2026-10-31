@@ -7,7 +7,8 @@
  */
 
 Module.register("MMM-HomeAssistantDataProvider", {
-	// No display: MagicMirror² still calls getDom() for every module.
+	// No display: without this override, a module given a position shows
+	// its name.
 	getDom() {
 		return document.createElement("div");
 	}
