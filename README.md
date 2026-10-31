@@ -37,7 +37,6 @@ No existing module covers this. In the MagicMirror² module list:
   with `getServerModuleConfig()`, which older versions lack.
 - Node.js as required by MagicMirror² 2.38 (22.22 or newer). The module
   uses Node's built-in `WebSocket` and has no dependencies.
-- Home Assistant 2024.3 or newer, for `last_reported`.
 
 ## Design
 
@@ -45,8 +44,8 @@ No existing module covers this. In the MagicMirror² module list:
 
 1. The `node_helper` connects to the Home Assistant WebSocket API with a
    long-lived access token and subscribes to the configured entities.
-2. On every state change, and on every report of an unchanged value, it
-   sends the reading to the browser side of the module.
+2. On every change of a state or its attributes, it sends the reading to
+   the browser side of the module.
 3. The browser side publishes it to all modules with `sendNotification`.
 
 ### Reading names
@@ -83,7 +82,6 @@ measurement only:
 | `unit` | string \| null | `attributes.unit_of_measurement` |
 | `quantity` | string \| null | `attributes.device_class` as is |
 | `stateClass` | string \| null | `attributes.state_class` |
-| `reportedAt` | number \| null | `last_reported`, falling back to `last_updated`, as epoch ms |
 | `changedAt` | number \| null | `last_changed` as epoch ms |
 | `available` | boolean | false for `unavailable`, `unknown` and a lost connection |
 
@@ -93,13 +91,19 @@ measurement only:
   `null` for a sensor without a device class, e.g. a template sensor.
 - `stateClass` tells a momentary value (`measurement`) from a counter
   (`total`, `total_increasing`).
-- `reportedAt` changes on every report, also of an unchanged value. Use
-  it to decide whether a reading is stale. `changedAt` changes only when
-  the value changes.
+- A reading stays valid until the next one arrives, however long the
+  value stays the same. Whether it is valid at all, `available` tells.
+- `changedAt` is the time of the last change of the value.
 - Non-numeric states (`on`/`off`, text) are not published as values: such
   a reading has `value: null` and `available: true`.
 - An unavailable reading is sent explicitly, with `value: null`, so that
   a display shows "no value" instead of keeping the old one.
+- When the connection is lost, an unavailable reading keeps `label`,
+  `unit`, `quantity`, `stateClass` and `changedAt` of the last known
+  reading, so that a display can still show what it is.
+- A configured entity that Home Assistant does not know is sent as
+  unavailable with every field except `name` and `available` set to
+  `null`.
 - No level or assessment: thresholds belong to the display, otherwise the
   provider couples to it.
 - No entity ID: displays know readings by name only.
@@ -126,18 +130,37 @@ readings once after `ALL_MODULES_STARTED` on its own.
 Sent on every change of the connection state, and at start after
 `ALL_MODULES_STARTED`.
 
+The state is sent without delay, also for a short drop while Home
+Assistant restarts. A display does not need it: after 30 s without
+connection, every reading arrives with `available: false`. A display
+that reacts to `connected: false` itself should wait for its own grace
+period, or it flickers on every short drop.
+
 ### Connection
 
+- The `node_helper` connects in `start()`, from the server-side config,
+  without waiting for the browser. MagicMirror awaits `start()` before it
+  reports the modules as started, so `start()` must not wait for the
+  connection. A reloaded browser sends nothing the connection depends
+  on; it only asks for the current readings.
+- The subscription is `subscribe_entities` with `entity_ids`. It sends
+  the initial states, then a compressed diff on every change of a state
+  or its attributes, never a report of an unchanged value. In the
+  compressed format, timestamps are seconds since the epoch; `lu` is
+  missing when it equals `lc`.
 - Reconnect after a lost connection with exponential backoff (cap about
   10 s) and resubscribe; after reconnecting, publish the current states.
 - When the connection stays lost for 30 s, publish every reading with
-  `available: false` and `value: null`, so that a display without its own
-  staleness check does not keep an old value. The delay avoids flicker
-  while Home Assistant restarts.
-- **Open:** which subscription delivers reports of unchanged values
-  (`last_reported`). `subscribe_entities` with an entity filter is the
-  candidate; to be verified. Without it, a steady sensor would turn
-  stale in the display.
+  `available: false` and `value: null`, so that no display keeps an old
+  value as if it were current. The delay avoids flicker
+  while Home Assistant restarts. All other fields keep their last known
+  values.
+- A configured entity missing from the initial states is published as
+  unavailable, and the provider logs a warning naming the reading.
+- A rejected token is logged once, without the token. The provider then
+  stays disconnected (`connected: false`) and does not retry until
+  MagicMirror restarts: a corrected token only takes effect after a
+  restart anyway.
 
 ## Installation
 
@@ -178,8 +201,10 @@ git pull
 - `token` should be a `SECRET_*` variable: MagicMirror then hands it to
   the `node_helper` only. Create it in Home Assistant under profile >
   Security.
-- Set `useTLS` in `config.js`, not from `.env`: substituted values are
-  strings, and `"false"` is truthy.
+- MagicMirror replaces `${VAR}` in `config.js` textually. Write a
+  variable for `useTLS` or `port` without quotes (`port: ${HA_PORT}`): in
+  quotes it becomes a string, and `"false"` is truthy. The module does
+  not convert strings.
 - The module needs no `position`.
 - Configure one instance per mirror; it serves all displays.
 
