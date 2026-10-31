@@ -14,8 +14,10 @@ question there before implementing the part it concerns.
 
 - This module owns the notification contract. Document every field in
   the README; a change to the contract is a breaking change for displays.
-- Publish facts only: value, unit, quantity, report time, availability.
-  Never a level or an assessment: thresholds belong to the display.
+- Publish facts only, as the README's contract lists them. Never a level
+  or an assessment: thresholds belong to the display.
+- Never publish an entity ID or the whole `attributes` object: either
+  couples displays to Home Assistant.
 - Publish readings under the configured neutral names, never require a
   display to know entity IDs.
 - Read host, port, TLS, token and the readings only from the
@@ -33,12 +35,35 @@ question there before implementing the part it concerns.
   browser or log it.
 - Use the report time from Home Assistant (`last_reported`), not the
   time of receipt: displays decide staleness from it.
-- Send an unavailable reading explicitly; do not stay silent.
+- Send an unavailable reading explicitly; do not stay silent. A
+  connection lost for longer than the grace period makes every reading
+  unavailable; do not rely on displays checking staleness.
 - Reconnect with backoff and resubscribe; never let a connection error
   escape as an unhandled rejection, it would stop the MagicMirror server.
 - A reloaded browser registers the module again; the helper must not open
   a second connection for it.
 - No display: `getDom()` returns an empty element.
+- Requires MagicMirror 2.38: `getServerModuleConfig()` does not exist
+  before. If it is missing, log an error and stay idle; never fall back to
+  the config from the browser.
+
+## Build, lint, test
+
+No bundler and no dependencies: MagicMirror loads the files as they are,
+and users install by `git clone` only.
+
+- Use Node's built-in `WebSocket`; do not add a WebSocket package.
+- Syntax check: `git ls-files '*.js' | xargs -n1 node --check`
+- Lint: `pnpm dlx @biomejs/biome@2.6.3 ci .` – Biome runs standalone and
+  needs no entry in `package.json`. Keep its version the same in the
+  `$schema` of `biome.json`, in the workflow and here.
+- Tests: `node --test "tests/**/*.test.js"`. Do not add Vitest, Jest or
+  ESLint: they need dependencies and a lockfile.
+- Test the connection handling against a fake Home Assistant WebSocket
+  server in the test, not against a real instance.
+- Keep the workflow on the action and Node versions the MagicMirror²
+  module list checks (`actions/checkout@v7`, `actions/setup-node@v7`,
+  Node 22).
 
 ## Host pitfalls
 
@@ -50,14 +75,5 @@ question there before implementing the part it concerns.
 
 ## Open
 
-- **Open:** notification names and payload fields (see README,
-  "Contract").
-- **Open:** how late displays get the current state (request
-  notification vs. republish on start).
-- **Open:** WebSocket client: built-in `WebSocket` or `homeassistant-ws`.
 - **Open:** subscription that also delivers unchanged reports
-  (`last_reported`).
-- **Open:** toolchain. Proposed as in WallberryTheme: Biome for linting,
-  `node --test` without dependencies, a GitHub workflow for both.
-- **Open:** tests for the message handling against a fake Home Assistant
-  WebSocket server.
+  (`last_reported`); see README, "Connection".

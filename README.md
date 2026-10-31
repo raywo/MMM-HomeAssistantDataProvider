@@ -31,6 +31,14 @@ No existing module covers this. In the MagicMirror² module list:
 - `wonderslug/MMM-HomeAssistantDisplay` renders Home Assistant templates
   into its own display and publishes nothing.
 
+## Requirements
+
+- MagicMirror² 2.38 or newer. The module reads its config on the server
+  with `getServerModuleConfig()`, which older versions lack.
+- Node.js as required by MagicMirror² 2.38 (22.22 or newer). The module
+  uses Node's built-in `WebSocket` and has no dependencies.
+- Home Assistant 2024.3 or newer, for `last_reported`.
+
 ## Design
 
 ### Data flow
@@ -48,74 +56,121 @@ The config maps neutral names to entity IDs, e.g.
 Displays subscribe to `co2`, so replacing the sensor or the whole source
 only changes the provider's config.
 
-### Contract
+## Contract
 
-A reading holds facts about the measurement only:
+The provider owns this contract. Any change to a notification name or a
+field is a breaking change for displays.
 
-| Field | Source in Home Assistant |
-| --- | --- |
-| name | the configured reading name |
-| value | `state` as a number; none if `unavailable`, `unknown` or not numeric |
-| unit | `attributes.unit_of_measurement` |
-| quantity | `attributes.device_class`, e.g. `carbon_dioxide`, `humidity` |
-| report time | `last_reported`, falling back to `last_updated` |
-| available | false for `unavailable` and `unknown` |
+MagicMirror² notifications are broadcast to every module; there is no
+addressing. Displays react to the names below and ignore the rest.
 
-No level or assessment: thresholds belong to the display, otherwise the
-provider couples to it.
+| Notification | Sent by | Payload |
+| --- | --- | --- |
+| `HOME_ASSISTANT_READING` | provider | one reading |
+| `HOME_ASSISTANT_READING_REQUEST` | display | `{ name }` or nothing |
+| `HOME_ASSISTANT_CONNECTION` | provider | connection state |
 
-- **Open:** name of the notification. Proposed: prefixed with the module,
-  e.g. `HOME_ASSISTANT_READING`, so that no other module confuses it with
-  its own.
-- **Open:** exact field names and value types (e.g. report time as epoch
-  ms or ISO string).
-- **Open:** whether `quantity` uses Home Assistant's `device_class` as is
-  or a neutral vocabulary of the contract.
-- **Open:** whether non-numeric states (`on`/`off`, text) are published,
-  and how.
+### `HOME_ASSISTANT_READING`
 
-### Late displays
+One notification per reading. A reading holds facts about the
+measurement only:
 
-MagicMirror notifications are not retained: a display that starts after
-a reading was sent sees nothing until the next change.
+| Field | Type | Source in Home Assistant |
+| --- | --- | --- |
+| `name` | string | the configured reading name |
+| `label` | string \| null | `attributes.friendly_name` |
+| `value` | number \| null | `state` as a number; `null` if not available or not numeric |
+| `unit` | string \| null | `attributes.unit_of_measurement` |
+| `quantity` | string \| null | `attributes.device_class` as is |
+| `stateClass` | string \| null | `attributes.state_class` |
+| `reportedAt` | number \| null | `last_reported`, falling back to `last_updated`, as epoch ms |
+| `changedAt` | number \| null | `last_changed` as epoch ms |
+| `available` | boolean | false for `unavailable`, `unknown` and a lost connection |
 
-- **Open:** proposed is a request notification, e.g.
-  `HOME_ASSISTANT_READING_REQUEST`, answered with the latest reading of
-  every (or the named) entity. Alternative: republish all readings when
-  `ALL_MODULES_STARTED` or `DOM_OBJECTS_CREATED` arrives.
+- `quantity` is the physical quantity a sensor measures, as Home
+  Assistant names it, e.g. `temperature`, `humidity`, `carbon_dioxide`,
+  `pm25`, `pressure`, `illuminance`, `power`, `energy`, `battery`. It is
+  `null` for a sensor without a device class, e.g. a template sensor.
+- `stateClass` tells a momentary value (`measurement`) from a counter
+  (`total`, `total_increasing`).
+- `reportedAt` changes on every report, also of an unchanged value. Use
+  it to decide whether a reading is stale. `changedAt` changes only when
+  the value changes.
+- Non-numeric states (`on`/`off`, text) are not published as values: such
+  a reading has `value: null` and `available: true`.
+- An unavailable reading is sent explicitly, with `value: null`, so that
+  a display shows "no value" instead of keeping the old one.
+- No level or assessment: thresholds belong to the display, otherwise the
+  provider couples to it.
+- No entity ID: displays know readings by name only.
+
+### `HOME_ASSISTANT_READING_REQUEST`
+
+Notifications are not retained: a display that needs a reading after it
+was sent sees nothing until the next report. Such a display sends
+`HOME_ASSISTANT_READING_REQUEST`; the provider answers with one
+`HOME_ASSISTANT_READING` per configured reading, or only for `name` if
+given. A name the config does not list gets no answer.
+
+Displays need the request only for readings they need later, e.g. when
+another module shows them again. At start the provider publishes all
+readings once after `ALL_MODULES_STARTED` on its own.
+
+### `HOME_ASSISTANT_CONNECTION`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `connected` | boolean | whether the provider holds an authenticated connection |
+| `since` | number | epoch ms of the last change of `connected` |
+
+Sent on every change of the connection state, and at start after
+`ALL_MODULES_STARTED`.
 
 ### Connection
 
-- **Open:** WebSocket client: Node's built-in `WebSocket` (Node 22+)
-  without dependencies, or the `homeassistant-ws` package that
-  MMM-HomeAssistantDisplay uses.
+- Reconnect after a lost connection with exponential backoff (cap about
+  10 s) and resubscribe; after reconnecting, publish the current states.
+- When the connection stays lost for 30 s, publish every reading with
+  `available: false` and `value: null`, so that a display without its own
+  staleness check does not keep an old value. The delay avoids flicker
+  while Home Assistant restarts.
 - **Open:** which subscription delivers reports of unchanged values
   (`last_reported`). `subscribe_entities` with an entity filter is the
   candidate; to be verified. Without it, a steady sensor would turn
   stale in the display.
-- Reconnect after a lost connection with exponential backoff (cap about
-  10 s) and resubscribe; after reconnecting, publish the current states.
-- Publish an unavailable reading when the entity becomes `unavailable`,
-  so that a display shows "no value" instead of keeping the old one.
-- **Open:** whether a lost connection is published, or displays rely on
-  staleness.
+
+## Installation
+
+```sh
+cd ~/MagicMirror/modules
+git clone https://github.com/raywo/MMM-HomeAssistantDataProvider
+```
+
+The module has no dependencies; there is nothing to install.
+
+## Update
+
+```sh
+cd ~/MagicMirror/modules/MMM-HomeAssistantDataProvider
+git pull
+```
 
 ## Configuration (draft)
 
 ```js
-{
-  module: "MMM-HomeAssistantDataProvider",
-  config: {
-    host: "192.168.1.10",
-    port: 8123,
-    useTLS: false,
-    token: "${SECRET_HOMEASSISTANT_TOKEN}",
-    readings: {
-      co2: "sensor.living_room_co2",
-      humidity: "sensor.living_room_humidity"
-    }
-  }
-}
+    {
+      module: "MMM-HomeAssistantDataProvider",
+      config: {
+        host: "192.168.1.10",
+        port: 8123,
+        useTLS: false,
+        token: "${SECRET_HOMEASSISTANT_TOKEN}",
+        readings: {
+          co2: "sensor.living_room_co2",
+          humidity: "sensor.living_room_humidity"
+        }
+      }
+    },
 ```
 
 - `host` must be reachable from the MagicMirror server; in Docker,
