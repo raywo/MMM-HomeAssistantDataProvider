@@ -1,0 +1,30 @@
+name: Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - "run/*"
+      - "run/**"
+  push:
+    branches:
+      - main
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: biomejs/setup-biome@v2
+        with:
+          # Keep in step with the $schema version in biome.json
+          version: 2.6.3
+      - name: Check the syntax of every JavaScript file
+        run: git ls-files '*.js' | xargs -n1 node --check
+      - name: Lint with Biome
+        run: biome ci .
+      - name: Run the tests
+        run: node --test "tests/**/*.test.js"
