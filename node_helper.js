@@ -57,6 +57,43 @@ module.exports = NodeHelper.create({
 		this.connection.start();
 	},
 
+	/**
+	 * Every socket notification is untrusted: anyone who can open the
+	 * mirror can send one. It may only ask for what the helper already
+	 * publishes; the payload is read for a reading name and nothing else.
+	 */
+	socketNotificationReceived(notification, payload) {
+		if (this.connection === null) {
+			return;
+		}
+		switch (notification) {
+			case "HOME_ASSISTANT_READING_REQUEST":
+				this.answerReadingRequest(payload?.name);
+				break;
+			case "HOME_ASSISTANT_CONNECTION_REQUEST":
+				this.sendSocketNotification("HOME_ASSISTANT_CONNECTION", this.connection.state());
+				break;
+			default:
+				break;
+		}
+	},
+
+	/**
+	 * Sends the latest reading of every configured name, or only of `name`
+	 * if given. A name the server-side config does not list, such as an
+	 * entity ID, gets no answer: the answer only ever comes from the
+	 * readings the connection already holds, which are the configured
+	 * ones. Never look a name up anywhere else, e.g. in Home Assistant.
+	 */
+	answerReadingRequest(name) {
+		const all = name === undefined || name === null;
+		for (const reading of this.connection.readings()) {
+			if (all || reading.name === name) {
+				this.sendSocketNotification("HOME_ASSISTANT_READING", reading);
+			}
+		}
+	},
+
 	stop() {
 		this.connection?.stop();
 	}

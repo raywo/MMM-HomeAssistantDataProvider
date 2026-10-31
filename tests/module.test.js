@@ -46,6 +46,9 @@ function recordingConnection() {
 			this.callbacks = callbacks;
 			this.started = 0;
 			this.stopped = 0;
+			// What the real connection would hold: set by a test.
+			this.latest = [];
+			this.connectionState = {connected: false, since: 0};
 			created.push(this);
 		}
 		start() {
@@ -53,6 +56,12 @@ function recordingConnection() {
 		}
 		stop() {
 			this.stopped++;
+		}
+		readings() {
+			return [...this.latest];
+		}
+		state() {
+			return {...this.connectionState};
 		}
 	}
 	return {created, lib: {HomeAssistantConnection}};
@@ -93,6 +102,27 @@ function loadNodeHelper(lib = {}) {
 		filename: "node_helper.js"
 	});
 	return {exports: module.exports, created, logged};
+}
+
+/**
+ * Creates the browser side the way MagicMirror² does: as an instance of
+ * Module. Records what it publishes to other modules and what it sends to
+ * the node_helper; payloads are cloned out of the module's context.
+ */
+function startModule() {
+	const notifications = [];
+	const socketNotifications = [];
+	const base = {
+		name: MODULE_NAME,
+		sendNotification(notification, payload) {
+			notifications.push({notification, payload: structuredClone(payload)});
+		},
+		sendSocketNotification(notification, payload) {
+			socketNotifications.push({notification, payload: structuredClone(payload)});
+		}
+	};
+	const module = Object.assign(Object.create(base), loadModule()[MODULE_NAME]);
+	return {module, notifications, socketNotifications};
 }
 
 const started = [];
@@ -219,7 +249,15 @@ describe(MODULE_NAME, () => {
 	// The browser reaches the helper only through socket notifications, and
 	// MagicMirror² restores SECRET_* placeholders in their payloads.
 	const FORGED = {host: "attacker.example", port: 443, useTLS: true, token: "forged", readings: {co2: "sensor.other"}};
-	const SOCKET_NOTIFICATIONS = ["CONFIG", "INIT", "GET_STATE", "GET_READING", "SET_CONFIG"];
+	const SOCKET_NOTIFICATIONS = [
+		"CONFIG",
+		"INIT",
+		"GET_STATE",
+		"GET_READING",
+		"SET_CONFIG",
+		"HOME_ASSISTANT_READING_REQUEST",
+		"HOME_ASSISTANT_CONNECTION_REQUEST"
+	];
 
 	function sendForged(helper) {
 		for (const notification of SOCKET_NOTIFICATIONS) {
@@ -290,6 +328,156 @@ describe(MODULE_NAME, () => {
 		assert.equal(connections[0].started, 1);
 	});
 
+	describe("publishing", () => {
+		const CO2 = {
+			name: "co2",
+			label: "Living room CO2",
+			value: 612,
+			unit: "ppm",
+			quantity: "carbon_dioxide",
+			stateClass: "measurement",
+			changedAt: 1761904800000,
+			available: true
+		};
+		const HUMIDITY = {...CO2, name: "humidity", label: "Living room humidity", value: 48.2, unit: "%", quantity: "humidity"};
+		const CONNECTED = {connected: true, since: 1761904800000};
+		const READINGS = {co2: "sensor.living_room_co2", humidity: "sensor.living_room_humidity"};
+
+		/**
+		 * Starts the node_helper with a recording connection that holds
+		 * `latest`, and the browser side, and lets their socket
+		 * notifications reach each other as MagicMirror²'s socket would.
+		 */
+		function startMirror({latest = [CO2, HUMIDITY], readings = READINGS} = {}) {
+			const helperSide = startNodeHelper(serverConfig({readings}));
+			const browserSide = startModule();
+			const connection = helperSide.connections[0];
+			connection.latest = latest;
+			connection.connectionState = CONNECTED;
+
+			const toHelper = browserSide.module.sendSocketNotification;
+			browserSide.module.sendSocketNotification = function (notification, payload) {
+				toHelper.call(this, notification, payload);
+				helperSide.helper.socketNotificationReceived(notification, structuredClone(payload));
+			};
+			helperSide.helper.sendSocketNotification = (notification, payload) => {
+				helperSide.sent.push({notification, payload});
+				browserSide.module.socketNotificationReceived(notification, structuredClone(payload));
+			};
+			return {...helperSide, ...browserSide, connection};
+		}
+
+		function published({notifications}, notification) {
+			return notifications.filter((message) => message.notification === notification).map((message) => message.payload);
+		}
+
+		it("forwards each reading and connection change from the node_helper", () => {
+			const mirror = startMirror();
+			mirror.connection.callbacks.onReading(CO2);
+			mirror.connection.callbacks.onConnection(CONNECTED);
+			assert.deepEqual(mirror.notifications, [
+				{notification: "HOME_ASSISTANT_READING", payload: CO2},
+				{notification: "HOME_ASSISTANT_CONNECTION", payload: CONNECTED}
+			]);
+		});
+
+		it("publishes nothing else the node_helper sends", () => {
+			const {module, notifications} = startModule();
+			module.socketNotificationReceived("SOMETHING_ELSE", {token: "x"});
+			assert.deepEqual(notifications, []);
+		});
+
+		it("publishes every known reading and the connection state once after ALL_MODULES_STARTED", () => {
+			const mirror = startMirror();
+			mirror.module.notificationReceived("ALL_MODULES_STARTED");
+			assert.deepEqual(published(mirror, "HOME_ASSISTANT_READING"), [CO2, HUMIDITY]);
+			assert.deepEqual(published(mirror, "HOME_ASSISTANT_CONNECTION"), [CONNECTED]);
+			assert.equal(mirror.notifications.length, 3);
+		});
+
+		it("publishes the connection state after ALL_MODULES_STARTED before any reading is known", () => {
+			const mirror = startMirror({latest: []});
+			mirror.module.notificationReceived("ALL_MODULES_STARTED");
+			assert.deepEqual(mirror.notifications, [{notification: "HOME_ASSISTANT_CONNECTION", payload: CONNECTED}]);
+		});
+
+		it("answers a request without name with every reading", () => {
+			for (const payload of [undefined, null, {}, {name: undefined}, {name: null}]) {
+				const mirror = startMirror();
+				mirror.module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", payload);
+				assert.deepEqual(mirror.notifications, [
+					{notification: "HOME_ASSISTANT_READING", payload: CO2},
+					{notification: "HOME_ASSISTANT_READING", payload: HUMIDITY}
+				]);
+			}
+		});
+
+		it("answers a request with a configured name with that reading only", () => {
+			const mirror = startMirror();
+			mirror.module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", {name: "humidity"});
+			assert.deepEqual(mirror.notifications, [{notification: "HOME_ASSISTANT_READING", payload: HUMIDITY}]);
+		});
+
+		it("does not answer a request with a name the config does not list", () => {
+			for (const name of ["temperature", "", "__proto__", "constructor", "toString"]) {
+				const mirror = startMirror();
+				mirror.module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", {name});
+				assert.deepEqual(mirror.notifications, [], `answered ${name}`);
+			}
+		});
+
+		it("does not answer a request with an entity ID", () => {
+			const mirror = startMirror();
+			for (const name of ["sensor.living_room_co2", "sensor.outside_temperature"]) {
+				mirror.module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", {name});
+			}
+			assert.deepEqual(mirror.notifications, []);
+		});
+
+		it("does not answer a request with a name that is not a string", () => {
+			const mirror = startMirror();
+			for (const name of [0, true, ["co2"], {name: "co2"}, {toString: () => "co2"}]) {
+				mirror.helper.socketNotificationReceived("HOME_ASSISTANT_READING_REQUEST", {name});
+			}
+			assert.deepEqual(mirror.sent, []);
+		});
+
+		it("does not answer for a configured reading that has none yet", () => {
+			const mirror = startMirror({latest: [CO2]});
+			mirror.module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", {name: "humidity"});
+			assert.deepEqual(mirror.notifications, []);
+		});
+
+		it("sends the node_helper the reading name of a request and nothing else", () => {
+			const {module, socketNotifications} = startModule();
+			module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", {
+				name: "co2",
+				entityId: "sensor.other",
+				host: "attacker.example",
+				token: "forged"
+			});
+			assert.deepEqual(socketNotifications, [{notification: "HOME_ASSISTANT_READING_REQUEST", payload: {name: "co2"}}]);
+		});
+
+		it("ignores requests while idle", () => {
+			const {helper, sent} = startNodeHelper(serverConfig({host: ""}));
+			helper.socketNotificationReceived("HOME_ASSISTANT_READING_REQUEST", {});
+			helper.socketNotificationReceived("HOME_ASSISTANT_CONNECTION_REQUEST", {});
+			assert.deepEqual(sent, []);
+		});
+
+		it("leaves the connection as it is on a request", () => {
+			const mirror = startMirror();
+			const config = structuredClone(mirror.helper.config);
+			mirror.module.notificationReceived("ALL_MODULES_STARTED");
+			mirror.module.notificationReceived("HOME_ASSISTANT_READING_REQUEST", {name: "co2"});
+			assert.deepEqual(mirror.helper.config, config);
+			assert.equal(mirror.connections.length, 1);
+			assert.equal(mirror.connection.started, 1);
+			assert.equal(mirror.connection.stopped, 0);
+		});
+	});
+
 	describe("against a fake Home Assistant", () => {
 		const STATES = {"sensor.living_room_co2": {s: "612", a: {friendly_name: "Living room CO2"}, c: "01J", lc: 1761904800}};
 
@@ -326,6 +514,24 @@ describe(MODULE_NAME, () => {
 			await new Promise((resolve) => setTimeout(resolve, 50));
 			assert.equal(fake.connections.length, 1);
 			assert.equal(fake.subscriptions().length, 1);
+		});
+
+		it("answers a request with the reading from Home Assistant and reads no other entity", async (t) => {
+			const fake = await homeAssistant(t);
+			const {helper, sent} = startNodeHelper(serverConfig({host: "127.0.0.1", port: fake.port}), {realConnection: true});
+			await waitFor(() => sent.some((message) => message.notification === "HOME_ASSISTANT_READING"));
+			const before = sent.length;
+			const receivedBefore = fake.received.length;
+
+			helper.socketNotificationReceived("HOME_ASSISTANT_READING_REQUEST", {name: "sensor.living_room_co2"});
+			helper.socketNotificationReceived("HOME_ASSISTANT_READING_REQUEST", {name: "co2"});
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			assert.deepEqual(
+				sent.slice(before).map((message) => [message.notification, message.payload.name, message.payload.value]),
+				[["HOME_ASSISTANT_READING", "co2", 612]]
+			);
+			assert.equal(fake.received.length, receivedBefore, "a request reached Home Assistant");
 		});
 
 		it("puts the token into no log line and no message to the browser", async (t) => {
