@@ -32,12 +32,15 @@ function loadModule() {
 }
 
 /**
- * Loads the node_helper with a stub of MagicMirror²'s `node_helper`
- * module; returns what it exports and the helpers it created.
+ * Loads the node_helper with stubs of MagicMirror²'s `node_helper` and
+ * `logger` modules; returns what it exports, the helpers it created and
+ * the lines it logged, by level.
  */
 function loadNodeHelper() {
 	const module = {exports: {}};
 	const created = [];
+	const logged = {log: [], info: [], warn: [], error: [], debug: []};
+	const logger = Object.fromEntries(Object.keys(logged).map((level) => [level, (...args) => logged[level].push(args.join(" "))]));
 	const stubs = {
 		node_helper: {
 			create: (definition) => {
@@ -45,14 +48,57 @@ function loadNodeHelper() {
 				created.push(helper);
 				return helper;
 			}
-		}
+		},
+		logger
 	};
-	const require = (id) => {
+	const requireStub = (id) => {
+		if (id.startsWith("./lib/")) {
+			return require(path.join(REPO_ROOT, id));
+		}
 		assert.ok(id in stubs, `node_helper requires ${id}, which the test does not stub`);
 		return stubs[id];
 	};
-	vm.runInNewContext(read("node_helper.js"), {module, exports: module.exports, require}, {filename: "node_helper.js"});
-	return {exports: module.exports, created};
+	vm.runInNewContext(read("node_helper.js"), {module, exports: module.exports, require: requireStub}, {
+		filename: "node_helper.js"
+	});
+	return {exports: module.exports, created, logged};
+}
+
+/**
+ * Starts the node_helper the way MagicMirror² does: as an instance of
+ * NodeHelper, whose `getServerModuleConfig()` returns `serverConfig`.
+ * Without `serverConfig`, the instance lacks `getServerModuleConfig()`, as
+ * before MagicMirror² 2.38. Like NodeHelper, the base ignores a socket
+ * notification the helper does not handle itself.
+ */
+function startNodeHelper(serverConfig) {
+	const {exports, logged} = loadNodeHelper();
+	const base = {name: MODULE_NAME, socketNotificationReceived() {}};
+	if (serverConfig !== undefined) {
+		base.getServerModuleConfig = () => serverConfig;
+	}
+	const helper = Object.assign(Object.create(base), exports.definition);
+	helper.start();
+	return {helper, logged};
+}
+
+const TOKEN = "eyJhbGciOiJIUzI1NiJ9.secret-token-value";
+
+// What config.js holds when MagicMirror² finds the variable not set.
+// biome-ignore lint/suspicious/noTemplateCurlyInString: the literal placeholder is the case under test
+const UNSET_TOKEN = "${SECRET_HOMEASSISTANT_TOKEN}";
+
+function serverConfig(overrides = {}) {
+	return {
+		host: "192.168.1.10",
+		token: TOKEN,
+		readings: {co2: "sensor.living_room_co2"},
+		...overrides
+	};
+}
+
+function allLines(logged) {
+	return Object.values(logged).flat();
 }
 
 describe(MODULE_NAME, () => {
@@ -70,6 +116,85 @@ describe(MODULE_NAME, () => {
 		const {exports, created} = loadNodeHelper();
 		assert.equal(created.length, 1);
 		assert.equal(exports, created[0]);
+	});
+
+	it("takes its config from getServerModuleConfig()", () => {
+		const {helper, logged} = startNodeHelper(serverConfig());
+		assert.deepEqual(helper.config, {
+			host: "192.168.1.10",
+			port: 8123,
+			useTLS: false,
+			token: TOKEN,
+			readings: {co2: "sensor.living_room_co2"}
+		});
+		assert.deepEqual(logged.error, []);
+	});
+
+	it("stays idle and names the required version without getServerModuleConfig()", () => {
+		const {helper, logged} = startNodeHelper(undefined);
+		assert.equal(helper.config, null);
+		assert.equal(logged.error.length, 1);
+		assert.match(logged.error[0], /MagicMirror² 2\.38/);
+		assert.match(logged.error[0], /getServerModuleConfig\(\)/);
+	});
+
+	for (const [label, overrides, expected] of [
+		["host is missing", {host: undefined}, /option host/],
+		["token is missing", {token: ""}, /option token/],
+		["readings are missing", {readings: undefined}, /option readings/],
+		["readings are empty", {readings: {}}, /option readings is empty/],
+		["the token variable is not set", {token: UNSET_TOKEN}, /SECRET_HOMEASSISTANT_TOKEN, which is not set/]
+	]) {
+		it(`stays idle and logs why when ${label}`, () => {
+			const {helper, logged} = startNodeHelper(serverConfig(overrides));
+			assert.equal(helper.config, null);
+			assert.ok(
+				logged.error.some((line) => expected.test(line)),
+				`no error matches ${expected}: ${logged.error}`
+			);
+			assert.ok(logged.error.every((line) => line.startsWith(`${MODULE_NAME}`)));
+		});
+	}
+
+	it("never logs the token, also not in error messages", () => {
+		const cases = [serverConfig(), serverConfig({host: ""}), serverConfig({readings: {}}), serverConfig({readings: {co2: ""}})];
+		for (const config of cases) {
+			const {logged} = startNodeHelper(config);
+			for (const line of allLines(logged)) {
+				assert.ok(!line.includes(TOKEN), `log line contains the token: ${line}`);
+			}
+		}
+	});
+
+	// The browser reaches the helper only through socket notifications, and
+	// MagicMirror² restores SECRET_* placeholders in their payloads.
+	const FORGED = {host: "attacker.example", port: 443, useTLS: true, token: "forged", readings: {co2: "sensor.other"}};
+	const SOCKET_NOTIFICATIONS = ["CONFIG", "INIT", "GET_STATE", "GET_READING", "SET_CONFIG"];
+
+	function sendForged(helper) {
+		for (const notification of SOCKET_NOTIFICATIONS) {
+			helper.socketNotificationReceived(notification, FORGED);
+			helper.socketNotificationReceived(notification, {config: FORGED});
+		}
+	}
+
+	it("does not take the connection from a socket notification", () => {
+		const {helper} = startNodeHelper(serverConfig());
+		const config = structuredClone(helper.config);
+		sendForged(helper);
+		assert.deepEqual(helper.config, config);
+	});
+
+	it("does not fall back to a socket notification without getServerModuleConfig()", () => {
+		const {helper} = startNodeHelper(undefined);
+		sendForged(helper);
+		assert.equal(helper.config, null);
+	});
+
+	it("does not fall back to a socket notification on an invalid config", () => {
+		const {helper} = startNodeHelper(serverConfig({host: ""}));
+		sendForged(helper);
+		assert.equal(helper.config, null);
 	});
 
 	it("has no dependencies", () => {

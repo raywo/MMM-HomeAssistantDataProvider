@@ -196,6 +196,22 @@ git pull
     },
 ```
 
+### Options
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `host` | string | required | Host name or IP address of Home Assistant, without scheme and port |
+| `port` | number | `8123` | Port of Home Assistant |
+| `useTLS` | boolean | `false` | `true` connects with `wss://`, `false` with `ws://` |
+| `token` | string | required | Long-lived access token of Home Assistant |
+| `readings` | object | required | Reading names mapped to entity IDs, at least one |
+
+If `host`, `token` or `readings` is missing or empty, a reading has no
+entity ID, or the variable of the token is not set, the module logs which
+option is wrong and does not connect; MagicMirror keeps running. It does
+the same on a MagicMirror older than 2.38. The log never contains the
+token.
+
 - `host` must be reachable from the MagicMirror server; in Docker,
   `homeassistant.local` does not resolve, use an IP address or DNS name.
 - `token` should be a `SECRET_*` variable: MagicMirror then hands it to
