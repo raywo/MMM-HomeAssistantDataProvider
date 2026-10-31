@@ -291,12 +291,19 @@ measurement only:
 Notifications are not retained: a display that needs a reading after it
 was sent sees nothing until the next report. Such a display sends
 `HOME_ASSISTANT_READING_REQUEST`; the provider answers with one
-`HOME_ASSISTANT_READING` per configured reading, or only for `name` if
-given. A name the config does not list gets no answer.
+`HOME_ASSISTANT_READING` per configured reading it holds, or only for
+`name` if given. A name the config does not list gets no answer.
+
+The provider holds a reading once Home Assistant has sent the initial
+states of the subscription, or once the 30 s grace period has passed without connection. A
+reading not held yet gets no answer, neither on request nor in the
+publish after `ALL_MODULES_STARTED`; it arrives on its own as soon as
+the provider holds it. The provider never sends a reading as unavailable
+only because it has not arrived yet.
 
 Displays need the request only for readings they need later, e.g. when
-another module shows them again. At start the provider publishes all
-readings once after `ALL_MODULES_STARTED` on its own.
+another module shows them again. At start the provider publishes every
+reading it holds once after `ALL_MODULES_STARTED` on its own.
 
 #### `HOME_ASSISTANT_CONNECTION`
 
@@ -348,8 +355,8 @@ Module.register("MMM-ReadingText", {
 });
 ```
 
-It needs no request: the provider publishes every reading after
-`ALL_MODULES_STARTED` and on every change. A display that needs the
+It needs no request: the provider publishes every reading as soon as it
+holds it, again after `ALL_MODULES_STARTED`, and on every change. A display that needs the
 current value again later, e.g. after it was hidden, sends:
 
 ```js
