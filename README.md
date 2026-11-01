@@ -92,7 +92,7 @@ The module has no dependencies; there is nothing to install.
 
    A variable set in the environment of the MagicMirror² server, e.g. by
    Docker Compose, works the same way.
-6. Restart MagicMirror²: under pm2 with `pm2 restart MagicMirror²` (or the
+6. Restart MagicMirror²: under pm2 with `pm2 restart MagicMirror` (or the
    name `pm2 list` shows), in Docker by restarting the container,
    otherwise by stopping it and starting it again the way you started it.
 7. Check the log of the MagicMirror² server (see
@@ -160,9 +160,10 @@ Restart MagicMirror² afterwards, as in step 6 of
 ## Troubleshooting
 
 The module writes to the log of the MagicMirror² server, i.e. the
-terminal it runs in, or `pm2 logs` if it runs under pm2. Every line of
-the module contains `MMM-HomeAssistantDataProvider`. The browser console
-shows nothing of the connection.
+terminal it runs in, `pm2 logs` if it runs under pm2, or
+`docker logs <container>` if it runs in Docker. Every line of the module
+contains `MMM-HomeAssistantDataProvider`. The browser console shows
+nothing of the connection.
 
 ### The token is rejected
 
