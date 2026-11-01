@@ -8,6 +8,8 @@ raises the major version.
 
 ## Unreleased
 
+## 1.0.1 - 2026-11-01
+
 ### Added
 
 - `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), linked from
