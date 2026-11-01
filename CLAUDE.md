@@ -61,9 +61,9 @@ and users install by `git clone` only.
   ESLint: they need dependencies and a lockfile.
 - Test the connection handling against a fake Home Assistant WebSocket
   server in the test, not against a real instance.
-- Keep the workflow on the action and Node versions the MagicMirror²
-  module list checks (`actions/checkout@v7`, `actions/setup-node@v7`,
-  Node 22).
+- Keep the workflow at or above the versions the MagicMirror² module
+  list checks as a minimum (`actions/checkout@v7`,
+  `actions/setup-node@v7`, Node 22). Run the checks on Node 24.
 
 ## Host pitfalls
 
