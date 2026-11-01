@@ -8,18 +8,6 @@ raises the major version.
 
 ## Unreleased
 
-### Added
-
-- `CONTRIBUTING.md` with the rules for issues and pull requests.
-- A sponsor link on GitHub and a support section in the README.
-
-### Changed
-
-- The README follows the order in which users set up the module:
-  installation and configuration come before the comparison with other
-  modules, and the steps end with the restart and the log line that
-  shows the connection.
-
 ## 1.0.0 - 2026-10-31
 
 First version.
@@ -39,3 +27,5 @@ First version.
 - Reconnect with exponential backoff, a ping every 30 s and a 10 s limit
   for the authentication; a rejected token stops the module until
   MagicMirror² restarts.
+- `CONTRIBUTING.md` with the rules for issues and pull requests.
+- A sponsor link on GitHub and a support section in the README.
