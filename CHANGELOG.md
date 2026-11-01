@@ -6,6 +6,13 @@ and the module uses [Semantic Versioning](https://semver.org/): a change
 to the notification contract in the README is a breaking change and
 raises the major version.
 
+## Unreleased
+
+### Added
+
+- `CONTRIBUTING.md` with the rules for issues and pull requests.
+- A sponsor link on GitHub and a support section in the README.
+
 ## 1.0.0 - 2026-10-31
 
 First version.

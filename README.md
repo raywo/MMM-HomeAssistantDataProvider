@@ -33,8 +33,10 @@ No existing module covers this. In the MagicMirror² module list:
 
 ### Data flow
 
-1. The `node_helper` connects to the Home Assistant WebSocket API with a
-   long-lived access token and subscribes to the configured entities.
+1. The `node_helper` connects to the
+   [Home Assistant WebSocket API](https://developers.home-assistant.io/docs/api/websocket/)
+   with a long-lived access token and subscribes to the configured
+   entities.
 2. On every change of a state or its attributes, it sends the reading to
    the browser side of the module.
 3. The browser side publishes it to all modules with `sendNotification`.
@@ -410,9 +412,16 @@ pnpm dlx @biomejs/biome@2.6.3 ci .
 node --test "tests/**/*.test.js"
 ```
 
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
+
+## Support
+
+If the module brings your Home Assistant to your mirror, you can
+[buy me a coffee](https://www.buymeacoffee.com/raywo).
 
 ## License
 
