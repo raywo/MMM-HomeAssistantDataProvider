@@ -67,21 +67,21 @@ The module has no dependencies; there is nothing to install.
 4. Add the module to `config/config.js`, with the names from step 3
    under `readings` (see [Options](#options)):
 
-   ```js
-   {
-     module: "MMM-HomeAssistantDataProvider",
-     config: {
-       host: "192.168.1.10",
-       port: 8123,
-       useTLS: false,
-       token: "${SECRET_HOMEASSISTANT_TOKEN}",
-       readings: {
-         co2: "sensor.living_room_co2",
-         humidity: "sensor.living_room_humidity"
-       }
-     }
-   },
-   ```
+```js
+{
+  module: "MMM-HomeAssistantDataProvider",
+  config: {
+    host: "192.168.1.10",
+    port: 8123,
+    useTLS: false,
+    token: "${SECRET_HOMEASSISTANT_TOKEN}",
+    readings: {
+      co2: "sensor.living_room_co2",
+      humidity: "sensor.living_room_humidity"
+    }
+  }
+},
+```
 
 5. Put the token from step 1 into `config/config.env`, next to
    `config.js`. MagicMirror² reads this file at start:

@@ -8,6 +8,18 @@ raises the major version.
 
 ## Unreleased
 
+### Added
+
+- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), linked from
+  `CONTRIBUTING.md`.
+- A Dependabot configuration that keeps the GitHub Actions of the
+  workflow up to date.
+
+### Changed
+
+- The config example in the README is no longer indented in the list of
+  setup steps, so that the MagicMirror² module list recognizes it.
+
 ## 1.0.0 - 2026-10-31
 
 First version.
