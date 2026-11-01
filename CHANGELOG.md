@@ -13,6 +13,13 @@ raises the major version.
 - `CONTRIBUTING.md` with the rules for issues and pull requests.
 - A sponsor link on GitHub and a support section in the README.
 
+### Changed
+
+- The README follows the order in which users set up the module:
+  installation and configuration come before the comparison with other
+  modules, and the steps end with the restart and the log line that
+  shows the connection.
+
 ## 1.0.0 - 2026-10-31
 
 First version.
