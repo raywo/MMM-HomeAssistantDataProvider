@@ -2,7 +2,8 @@
 
 Thanks for helping. Bug reports, questions and pull requests are welcome
 as [issues](https://github.com/raywo/MMM-HomeAssistantDataProvider/issues)
-and pull requests on GitHub.
+and pull requests on GitHub. Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Reporting a bug
 
