@@ -8,6 +8,11 @@ raises the major version.
 
 ## Unreleased
 
+### Changed
+
+- `package.json` declares `"type": "commonjs"`, as the MagicMirror²
+  module list check requires.
+
 ## 1.0.1 - 2026-11-01
 
 ### Added
